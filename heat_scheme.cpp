@@ -27,6 +27,10 @@ int calcIndex(int i, int j, int I){
     return j*(I + 1) + i;
 }
 
+int calcIndexCol(int i, int j, int J){
+    return i*(J + 1) + j;
+}
+
 double initCondition(int i, int I) {
     return 1 + cos(M_PI*i/I);
 }
@@ -57,7 +61,7 @@ ModelParams prepareParams(int I, int J){
 
 }
 
-void saveMatrix(double* matrix, int I, int J, char* filepath){
+void saveMatrix(double* matrix, int I, int J, const char * filepath){
     FILE* fptr = fopen(filepath, "w");
     for(int j=0; j <= J; j++){
         for(int i=0; i<= I; i++){
