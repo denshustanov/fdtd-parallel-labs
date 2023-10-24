@@ -2,6 +2,7 @@
 #include <chrono>
 #include <iostream>
 #include <mpi.h>
+#include <cstdlib>
 
 int main(int argc, char **argv)
 {
@@ -10,9 +11,10 @@ int main(int argc, char **argv)
     MPI_Comm_size(MPI_COMM_WORLD, &total);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    int I = 9;
-    int J = 99;
-    const int iterations = 1;
+    int I = std::atoi(argv[1]);
+    int J = std::atoi(argv[2]);
+    int save_result = std::atoi(argv[3]);
+
     ModelParams params = prepareParams(I, J);
     int vecSize = (I + 1) * (J + 1);
     double *m = (double *)calloc(vecSize, sizeof(double));
@@ -20,6 +22,7 @@ int main(int argc, char **argv)
     /*
         Tasks preparation
     */
+    
     int blocks[total];
     int starts[total];
     int ends[total];
@@ -32,21 +35,19 @@ int main(int argc, char **argv)
         for (int i = 0; i < total; i++)
         {
             blocks[i] = (I + 1) / total + (i < ((I + 1) % total) ? 1 : 0);
-            end += blocks[i];
             starts[i] = start;
-            ends[i] = end;
-
-            std::cout << calcIndexCol(start, 0, J) << " " << calcIndexCol(end - 1, J, J) << std::endl;
             start += blocks[i];
         }
     }
 
     MPI_Scatter(blocks, 1, MPI_INT, &block_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Scatter(starts, 1, MPI_INT, &start, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    MPI_Scatter(ends, 1, MPI_INT, &end, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    end = start + block_size - 1;
+    std::cout << "p " << rank << " of " << total << ", block size: " << block_size << ", start: " << start << ", end: " << end<< std::endl;
 
     // initial condition
-    for (int i = start; i < end; i++)
+    for (int i = start; i <= end; i++)
     {
         m[calcIndexCol(i, 0, J)] = initCondition(i, I);
     }
@@ -60,7 +61,6 @@ int main(int argc, char **argv)
     // iterating on time layers
     for (int j = 1; j <= J; j++)
     {
-
         /*
             Step one - communication
             exchanging block boundary values from previous layer with adjacent processes
@@ -70,20 +70,19 @@ int main(int argc, char **argv)
         if (rank < total - 1)
         {
 
-            // std::cout << "rank: " << rank << " sending " << end - 1 << " receiving " << end << std::endl;
-            // sending rightmost value
+            // sending rightmost node value
             MPI_Send(
-                m + calcIndexCol(end - 1, j - 1, J),
+                m + calcIndexCol(end, j - 1, J),
                 1,
-                MPI_INT,
+                MPI_DOUBLE,
                 rank + 1,
                 NULL,
                 MPI_COMM_WORLD);
-            // receiving value to the right of rightmost
+            // receiving value of the right of rightmost
             MPI_Recv(
-                m + calcIndexCol(end, j + 1, J),
+                m + calcIndexCol(end+1, j - 1, J),
                 1,
-                MPI_INT,
+                MPI_DOUBLE,
                 rank + 1,
                 NULL,
                 MPI_COMM_WORLD,
@@ -95,68 +94,65 @@ int main(int argc, char **argv)
         if (rank > 0)
         {
             // sending leftmost value
-            // std::cout << "rank: " << rank << " sending " << start << " receiving " << start - 1 << std::endl;
             MPI_Send(
                 m + calcIndexCol(start, j - 1, J),
                 1,
-                MPI_INT,
+                MPI_DOUBLE,
                 rank - 1,
                 NULL,
                 MPI_COMM_WORLD);
-            // receiving value to the left of leftmost
+            // receiving value of the left of leftmost node
             MPI_Recv(
                 m + calcIndexCol(start - 1, j - 1, J),
                 1,
-                MPI_INT,
+                MPI_DOUBLE,
                 rank - 1,
                 NULL,
                 MPI_COMM_WORLD,
                 &status);
         }
 
+        
+
         /*
             Step two - calculations
         */
         if (rank == 0)
         {
-            // left right boundary
+            // left boundary
             bottom = m[calcIndexCol(0, j - 1, J)];
             bottomLeft = m[calcIndexCol(1, j - 1, J)];
             m[calcIndexCol(0, j, J)] = leftCondition(bottom, bottomLeft, params);
-            for (int i = start + 1; i < end; ++i)
+            for (int i = 1; i <= end; ++i)
             {
                 bottom = m[calcIndexCol(i, j - 1, J)];
                 bottomRight = m[calcIndexCol(i + 1, j - 1, J)];
                 bottomLeft = m[calcIndexCol(i - 1, j - 1, J)];
-                m[calcIndexCol(i, j, I)] = innerNode(bottom, bottomLeft, bottomRight, params);
+                m[calcIndexCol(i, j, J)] = innerNode(bottom, bottomLeft, bottomRight, params);
             }
         }
         else if (rank == total - 1)
         {
             // right boundary
-            m[calcIndexCol(I, j, J)] = 0;
+            m[calcIndexCol(I, j, J)] = .0;
             // other nodes
-            for (int i = start; i < end - 1; ++i)
+            for (int i = start; i < end; ++i)
             {
                 bottom = m[calcIndexCol(i, j - 1, J)];
                 bottomRight = m[calcIndexCol(i + 1, j - 1, J)];
                 bottomLeft = m[calcIndexCol(i - 1, j - 1, J)];
-                m[calcIndexCol(i, j, I)] = innerNode(bottom, bottomLeft, bottomRight, params);
+                m[calcIndexCol(i, j, J)] = innerNode(bottom, bottomLeft, bottomRight, params);
             }
         }
         else
         {
             // other nodes
-            for (int i = start; i < end; ++i)
+            for (int i = start; i <= end; ++i)
             {
-                if (rank == 1)
-                {
-                    std::cout << "rank " << rank << " " << i << " " << j << '\n';
-                }
                 bottom = m[calcIndexCol(i, j - 1, J)];
                 bottomRight = m[calcIndexCol(i + 1, j - 1, J)];
                 bottomLeft = m[calcIndexCol(i - 1, j - 1, J)];
-                m[calcIndexCol(i, j, I)] = innerNode(bottom, bottomLeft, bottomRight, params);
+                m[calcIndexCol(i, j, J)] = innerNode(bottom, bottomLeft, bottomRight, params);
             }
         }
     }
@@ -192,9 +188,10 @@ int main(int argc, char **argv)
 
     std::string fname = "output_mpi_" + std::to_string(rank) + ".txt";
 
-    saveMatrix(m, I, J, fname.c_str());
-
-    std::cout << "p " << rank << " of " << total << ", block size: " << block_size << ", start: " << start << ", end: " << end - 1 << std::endl;
+    if(save_result)
+    {
+        saveMatrixCol(m, I, J, fname.c_str());
+    }
 
     MPI_Finalize();
     return 0;

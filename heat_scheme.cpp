@@ -71,3 +71,14 @@ void saveMatrix(double* matrix, int I, int J, const char * filepath){
         fprintf(fptr, "\n");
     } 
 }
+
+void saveMatrixCol(double* matrix, int I, int J, const char* filepath){
+     FILE* fptr = fopen(filepath, "w");
+    for(int j=0; j <= J; j++){
+        for(int i=0; i<= I; i++){
+            int idx = calcIndexCol(i, j, J);
+            fprintf(fptr, "%f ", matrix[idx]);
+        }
+        fprintf(fptr, "\n");
+    } 
+}
